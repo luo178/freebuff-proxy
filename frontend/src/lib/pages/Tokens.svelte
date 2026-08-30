@@ -57,7 +57,16 @@
 
   async function fetchData() {
     try {
-      data = await fetchAPI('/admin/api/tokens');
+      const result = await fetchAPI('/admin/api/tokens');
+      data = result;
+      // Seed spawnModels for every token before render: bind:spawnModel={spawnModels[idx]}
+      // must never bind undefined — Svelte 5 throws props_invalid_value when a
+      // $bindable('') prop receives undefined, which aborts the whole token
+      // table render and leaves the skeleton spinner up forever.
+      for (const [i, t] of (result?.tokens ?? []).entries()) {
+        const idx = t.index ?? i;
+        if (spawnModels[idx] === undefined) spawnModels[idx] = '';
+      }
       try {
         const cfgRes = await fetchAPI('/admin/api/config');
         const envContent = cfgRes?.env_content || '';
