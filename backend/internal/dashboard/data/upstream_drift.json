@@ -1,7 +1,7 @@
 {
   "upstream": "https://github.com/CodebuffAI/freebuff.git",
-  "upstream_sha": "2476a76f4dd8eb14dba89d848e676146c839a7e5",
-  "checked_at": "2026-09-04T09:18:51Z",
+  "upstream_sha": "ab5900afed06af009c01a4ff4eb340d995f00a0a",
+  "checked_at": "2026-09-04T16:27:03Z",
   "vendor_version": "0.0.168",
   "vendor_version_pinned": "0.0.168",
   "files": [
