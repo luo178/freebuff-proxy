@@ -1,0 +1,190 @@
+version: '3'
+
+vars:
+  BIN_NAME: freebuff-proxy
+  VERSION: '{{if .VERSION}}{{.VERSION}}{{else}}dev{{end}}'
+
+tasks:
+  default:
+    aliases: [build]
+    desc: 一键编译 Go 后端（当前平台） + 前端 Dashboard
+    cmds:
+      - task: frontend-install
+      - task: frontend-build
+      - task: go-build
+
+  # ── 当前平台构建 ──────────────────────────────────────────────
+
+  go-build:
+    desc: 编译 Go 二进制（当前平台，输出 {{.BIN_NAME}}）
+    deps: [frontend-install, frontend-build]
+    cmds:
+      - |
+        {{ if eq OS "windows" }}
+        $env:GOOS=""; $env:GOARCH=""; $env:CGO_ENABLED="0"
+        go build -ldflags "-s -w -X main.version={{.VERSION}}" -o {{.BIN_NAME}}.exe ./cmd/freebuff-proxy
+        {{ else }}
+        GOOS="" GOARCH="" CGO_ENABLED=0 \
+          go build -ldflags "-s -w -X main.version={{.VERSION}}" -o {{.BIN_NAME}} ./cmd/freebuff-proxy
+        {{ end }}
+    sources:
+      - '**/*.go'
+      - 'go.mod'
+      - 'go.sum'
+    generates:
+      - './{{.BIN_NAME}}{{if eq OS "windows"}}.exe{{end}}'
+    status:
+      - test -f {{.BIN_NAME}}{{if eq OS "windows"}}.exe{{end}}
+
+  go-run:
+    desc: 编译并运行（当前平台）
+    cmds:
+      - task: build
+      - |
+        {{ if eq OS "windows" }}
+        .\{{.BIN_NAME}}.exe
+        {{ else }}
+        ./{{.BIN_NAME}}
+        {{ end }}
+    interactive: true
+
+  # ── 全平台交叉编译 ────────────────────────────────────────────
+
+  go-build-all:
+    desc: 交叉编译所有平台（windows/linux/darwin × amd64/arm64）
+    deps: [frontend-install, frontend-build]
+    cmds:
+      - |
+        platforms="windows/amd64 windows/arm64 linux/amd64 linux/arm64 darwin/amd64 darwin/arm64"
+        for p in $platforms; do
+          os="${p%/*}"
+          arch="${p#*/}"
+          suffix=""
+          [[ "$os" == "windows" ]] && suffix=".exe"
+          out="{{.BIN_NAME}}_{{.VERSION}}_${os}_${arch}${suffix}"
+          echo "==> Building $out"
+          GOOS=$os GOARCH=$arch CGO_ENABLED=0 \
+            go build -ldflags "-s -w -X main.version={{.VERSION}}" \
+            -o "$out" ./cmd/freebuff-proxy
+        done
+    status:
+      - test -f "{{.BIN_NAME}}_{{.VERSION}}_windows_amd64.exe"
+      - test -f "{{.BIN_NAME}}_{{.VERSION}}_linux_amd64"
+      - test -f "{{.BIN_NAME}}_{{.VERSION}}_darwin_amd64"
+
+  go-build-linux-amd64:
+    aliases: [linux]
+    desc: 仅编译 Linux amd64 版本
+    deps: [frontend-install, frontend-build]
+    cmds:
+      - |
+        GOOS=linux GOARCH=amd64 CGO_ENABLED=0 \
+          go build -ldflags "-s -w -X main.version={{.VERSION}}" \
+          -o "{{.BIN_NAME}}_linux_amd64" ./cmd/freebuff-proxy
+    generates:
+      - './{{.BIN_NAME}}_linux_amd64'
+
+  go-build-linux-arm64:
+    aliases: [linux-arm64, linux-aarch64]
+    desc: 仅编译 Linux ARM64 / aarch64 版本
+    deps: [frontend-install, frontend-build]
+    cmds:
+      - |
+        GOOS=linux GOARCH=arm64 CGO_ENABLED=0 \
+          go build -ldflags "-s -w -X main.version={{.VERSION}}" \
+          -o "{{.BIN_NAME}}_linux_arm64" ./cmd/freebuff-proxy
+    generates:
+      - './{{.BIN_NAME}}_linux_arm64'
+
+  go-build-macos-amd64:
+    aliases: [macos]
+    desc: 仅编译 macOS amd64 版本
+    deps: [frontend-install, frontend-build]
+    cmds:
+      - |
+        GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 \
+          go build -ldflags "-s -w -X main.version={{.VERSION}}" \
+          -o "{{.BIN_NAME}}_darwin_amd64" ./cmd/freebuff-proxy
+    generates:
+      - './{{.BIN_NAME}}_darwin_amd64'
+
+  go-build-macos-arm64:
+    aliases: [macos-arm64, macos-aarch64]
+    desc: 仅编译 macOS ARM64 / aarch64 版本
+    deps: [frontend-install, frontend-build]
+    cmds:
+      - |
+        GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 \
+          go build -ldflags "-s -w -X main.version={{.VERSION}}" \
+          -o "{{.BIN_NAME}}_darwin_arm64" ./cmd/freebuff-proxy
+    generates:
+      - './{{.BIN_NAME}}_darwin_arm64'
+
+  go-build-windows-amd64:
+    aliases: [windows]
+    desc: 仅编译 Windows amd64 版本
+    deps: [frontend-install, frontend-build]
+    cmds:
+      - |
+        GOOS=windows GOARCH=amd64 CGO_ENABLED=0 \
+          go build -ldflags "-s -w -X main.version={{.VERSION}}" \
+          -o "{{.BIN_NAME}}_windows_amd64.exe" ./cmd/freebuff-proxy
+    generates:
+      - './{{.BIN_NAME}}_windows_amd64.exe'
+
+  go-build-windows-arm64:
+    aliases: [windows-arm64, windows-aarch64]
+    desc: 仅编译 Windows ARM64 / aarch64 版本
+    deps: [frontend-install, frontend-build]
+    cmds:
+      - |
+        GOOS=windows GOARCH=arm64 CGO_ENABLED=0 \
+          go build -ldflags "-s -w -X main.version={{.VERSION}}" \
+          -o "{{.BIN_NAME}}_windows_arm64.exe" ./cmd/freebuff-proxy
+    generates:
+      - './{{.BIN_NAME}}_windows_arm64.exe'
+
+  # ── 前端 ──────────────────────────────────────────────────────
+
+  frontend-install:
+    desc: 安装前端依赖
+    dir: frontend
+    cmds:
+      - npm install --prefer-offline
+    generates:
+      - 'node_modules/.package-lock.json'
+    status:
+      - test -d frontend/node_modules
+
+  frontend-build:
+    desc: 构建前端 SPA（产物嵌入 Go 二进制）
+    dir: frontend
+    cmds:
+      - npm run build
+    generates:
+      - '../internal/dashboard/dist/index.html'
+    status:
+      - test -d ../internal/dashboard/dist
+
+  frontend-dev:
+    desc: 启动前端开发服务器（代理到后端）
+    dir: frontend
+    cmd: npm run dev
+    interactive: true
+
+  # ── 测试 ──────────────────────────────────────────────────────
+
+  go-test:
+    desc: 运行测试（含 race detector）
+    cmds:
+      - go test -race -timeout 10m ./...
+
+  # ── 清理 ──────────────────────────────────────────────────────
+
+  clean:
+    desc: 清理构建产物
+    cmds:
+      - rm -f {{.BIN_NAME}}{{if eq OS "windows"}}.exe{{end}}
+      - rm -f {{.BIN_NAME}}_*
+      - rm -rf internal/dashboard/dist
+      - rm -rf frontend/node_modules
