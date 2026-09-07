@@ -152,10 +152,14 @@ tasks:
     dir: frontend
     cmds:
       - npx vite build
+    sources:
+      - 'src/**/*'
+      - 'vite.config.js'
+      - 'package.json'
     generates:
       - '../internal/dashboard/dist/index.html'
     status:
-      - test -d ../internal/dashboard/dist
+      - test -f ../internal/dashboard/dist/index.html
 
   frontend-dev:
     desc: 启动前端开发服务器（代理到后端）
