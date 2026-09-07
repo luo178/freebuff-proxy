@@ -177,5 +177,4 @@ tasks:
     cmds:
       - rm -f {{.BIN_NAME}}{{if eq OS "windows"}}.exe{{end}}
       - rm -f {{.BIN_NAME}}_*
-      - rm -rf internal/dashboard/dist
       - rm -rf frontend/node_modules
