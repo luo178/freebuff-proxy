@@ -20,13 +20,9 @@ tasks:
     deps: [frontend-install, frontend-build]
     cmds:
       - |
-        {{ if eq OS "windows" }}
-        $env:GOOS=""; $env:GOARCH=""; $env:CGO_ENABLED="0"
-        go build -ldflags "-s -w -X main.version={{.VERSION}}" -o {{.BIN_NAME}}.exe ./cmd/freebuff-proxy
-        {{ else }}
         GOOS="" GOARCH="" CGO_ENABLED=0 \
-          go build -ldflags "-s -w -X main.version={{.VERSION}}" -o {{.BIN_NAME}} ./cmd/freebuff-proxy
-        {{ end }}
+          go build -ldflags "-s -w -X main.version={{.VERSION}}" \
+          -o {{.BIN_NAME}}{{if eq OS "windows"}}.exe{{end}} ./cmd/freebuff-proxy
     sources:
       - '**/*.go'
       - 'go.mod'
@@ -40,12 +36,7 @@ tasks:
     desc: 编译并运行（当前平台）
     cmds:
       - task: build
-      - |
-        {{ if eq OS "windows" }}
-        .\{{.BIN_NAME}}.exe
-        {{ else }}
-        ./{{.BIN_NAME}}
-        {{ end }}
+      - ./{{.BIN_NAME}}{{if eq OS "windows"}}.exe{{end}}
     interactive: true
 
   # ── 全平台交叉编译 ────────────────────────────────────────────
