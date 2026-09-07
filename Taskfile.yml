@@ -1,0 +1,261 @@
+version: '3'
+
+vars:
+  BIN_NAME: freebuff-proxy
+  # 通过 VERSION=1.2.3 task build 传入；未传入时默认为 dev
+  VERSION: '{{if .VERSION}}{{.VERSION}}{{else}}dev{{end}}'
+  # 构建产物目录
+  OUT_DIR: bin
+  # 构建平台列表（空格分隔，供 shell 循环使用）
+  PLATFORMS_LIST: "windows/amd64 windows/arm64 linux/amd64 linux/arm64 darwin/amd64 darwin/arm64"
+
+tasks:
+  # ── 默认入口 ────────────────────────────────────────────────
+  default:
+    aliases: [build]
+    desc: 一键编译（当前平台：前端 + Go 后端）
+    cmds:
+      - task: frontend:build
+      - task: go:build
+
+  # ── 版本注入 ────────────────────────────────────────────────
+  # 用法：task build -- --version 1.0.0
+  # 内部通过 vars.VERSION 传递 ldflags 中的 main.version
+  vars:
+    LD_FLAGS: '-s -w -X main.version={{.VERSION}}'
+
+  # ── 前端 ────────────────────────────────────────────────────
+
+  frontend:install:
+    desc: 安装前端依赖（带离线缓存加速）
+    dir: frontend
+    cmds:
+      - npm install --prefer-offline
+    generates:
+      - 'node_modules/.package-lock.json'
+    status:
+      - '[ -d frontend/node_modules ] && echo "ok"'
+
+  frontend:build:
+    desc: 构建 Svelte SPA，产物嵌入 Go 二进制
+    dir: frontend
+    cmds:
+      - npx vite build
+    sources:
+      - 'frontend/src/**/*'
+      - 'frontend/vite.config.js'
+      - 'frontend/package.json'
+      - 'frontend/package-lock.json'
+    generates:
+      - 'backend/internal/dashboard/dist/index.html'
+    status:
+      - '[ -f backend/internal/dashboard/dist/index.html ] && echo "ok"'
+
+  frontend:dev:
+    desc: 启动前端 Vite 开发服务器（代理到本地后端）
+    dir: frontend
+    cmd: npm run dev
+    interactive: true
+
+  frontend:test:
+    desc: 运行前端 e2e 测试（Playwright）
+    dir: frontend
+    cmds:
+      - npx playwright test
+
+  # ── Go 后端：当前平台 ──────────────────────────────────────
+
+  go:build:
+    aliases: [build:proxy]
+    desc: 编译 Go 二进制（当前平台，输出到 {{.OUT_DIR}}/）
+    deps: [frontend:build]
+    cmds:
+      - |
+        mkdir -p {{.OUT_DIR}}
+        GOOS="" GOARCH="" CGO_ENABLED=0 \
+          go build -ldflags "{{.LD_FLAGS}}" \
+          -o {{.OUT_DIR}}/{{.BIN_NAME}}{{if eq OS "windows"}}.exe{{end}} \
+          ./backend/cmd/freebuff-proxy
+    sources:
+      - 'backend/**/*.go'
+      - 'backend/go.mod'
+      - 'backend/go.sum'
+    generates:
+      - '{{.OUT_DIR}}/{{.BIN_NAME}}{{if eq OS "windows"}}.exe{{end}}'
+    status:
+      - '[ -f {{.OUT_DIR}}/{{.BIN_NAME}}{{if eq OS "windows"}}.exe{{end}} ] && echo "ok"'
+
+  go:run:
+    desc: 编译并运行（当前平台）
+    deps: [build]
+    cmds:
+      - ./{{.OUT_DIR}}/{{.BIN_NAME}}{{if eq OS "windows"}}.exe{{end}}
+    interactive: true
+
+  # ── Go 后端：全平台交叉编译 ────────────────────────────────
+
+  go:build:all:
+    aliases: [build:all, cross-compile]
+    desc: 交叉编译全部 6 个平台（win/linux/darwin × amd64/arm64）
+    deps: [frontend:build]
+    cmds:
+      - |
+        mkdir -p {{.OUT_DIR}}
+        for p in {{.PLATFORMS_LIST}}; do
+          os="${p%/*}"
+          arch="${p#*/}"
+          suffix=""
+          [ "$os" = "windows" ] && suffix=".exe"
+          out="{{.OUT_DIR}}/{{.BIN_NAME}}_{{.VERSION}}_${os}_${arch}${suffix}"
+          echo "==> $out"
+          GOOS=$os GOARCH=$arch CGO_ENABLED=0 \
+            go build -ldflags "{{.LD_FLAGS}}" \
+            -o "$out" ./backend/cmd/freebuff-proxy
+        done
+    status:
+      - '[ -f {{.OUT_DIR}}/{{.BIN_NAME}}_{{.VERSION}}_windows_amd64.exe ]'
+      - '[ -f {{.OUT_DIR}}/{{.BIN_NAME}}_{{.VERSION}}_linux_amd64 ]'
+      - '[ -f {{.OUT_DIR}}/{{.BIN_NAME}}_{{.VERSION}}_darwin_amd64 ]'
+
+  # ── Go 后端：单平台编译（含别名） ──────────────────────────
+
+  go:build:windows:amd64:
+    aliases: [windows]
+    desc: 编译 Windows amd64 版本
+    deps: [frontend:build]
+    cmds:
+      - |
+        mkdir -p {{.OUT_DIR}}
+        GOOS=windows GOARCH=amd64 CGO_ENABLED=0 \
+          go build -ldflags "{{.LD_FLAGS}}" \
+          -o {{.OUT_DIR}}/{{.BIN_NAME}}_{{.VERSION}}_windows_amd64.exe \
+          ./backend/cmd/freebuff-proxy
+    generates:
+      - '{{.OUT_DIR}}/{{.BIN_NAME}}_{{.VERSION}}_windows_amd64.exe'
+
+  go:build:windows:arm64:
+    aliases: [windows-arm64]
+    desc: 编译 Windows ARM64 版本
+    deps: [frontend:build]
+    cmds:
+      - |
+        mkdir -p {{.OUT_DIR}}
+        GOOS=windows GOARCH=arm64 CGO_ENABLED=0 \
+          go build -ldflags "{{.LD_FLAGS}}" \
+          -o {{.OUT_DIR}}/{{.BIN_NAME}}_{{.VERSION}}_windows_arm64.exe \
+          ./backend/cmd/freebuff-proxy
+    generates:
+      - '{{.OUT_DIR}}/{{.BIN_NAME}}_{{.VERSION}}_windows_arm64.exe'
+
+  go:build:linux:amd64:
+    aliases: [linux]
+    desc: 编译 Linux amd64 版本
+    deps: [frontend:build]
+    cmds:
+      - |
+        mkdir -p {{.OUT_DIR}}
+        GOOS=linux GOARCH=amd64 CGO_ENABLED=0 \
+          go build -ldflags "{{.LD_FLAGS}}" \
+          -o {{.OUT_DIR}}/{{.BIN_NAME}}_{{.VERSION}}_linux_amd64 \
+          ./backend/cmd/freebuff-proxy
+    generates:
+      - '{{.OUT_DIR}}/{{.BIN_NAME}}_{{.VERSION}}_linux_amd64'
+
+  go:build:linux:arm64:
+    aliases: [linux-arm64, linux-aarch64]
+    desc: 编译 Linux ARM64 / aarch64 版本
+    deps: [frontend:build]
+    cmds:
+      - |
+        mkdir -p {{.OUT_DIR}}
+        GOOS=linux GOARCH=arm64 CGO_ENABLED=0 \
+          go build -ldflags "{{.LD_FLAGS}}" \
+          -o {{.OUT_DIR}}/{{.BIN_NAME}}_{{.VERSION}}_linux_arm64 \
+          ./backend/cmd/freebuff-proxy
+    generates:
+      - '{{.OUT_DIR}}/{{.BIN_NAME}}_{{.VERSION}}_linux_arm64'
+
+  go:build:darwin:amd64:
+    aliases: [macos]
+    desc: 编译 macOS amd64 (Intel) 版本
+    deps: [frontend:build]
+    cmds:
+      - |
+        mkdir -p {{.OUT_DIR}}
+        GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 \
+          go build -ldflags "{{.LD_FLAGS}}" \
+          -o {{.OUT_DIR}}/{{.BIN_NAME}}_{{.VERSION}}_darwin_amd64 \
+          ./backend/cmd/freebuff-proxy
+    generates:
+      - '{{.OUT_DIR}}/{{.BIN_NAME}}_{{.VERSION}}_darwin_amd64'
+
+  go:build:darwin:arm64:
+    aliases: [macos-arm64, macos-aarch64]
+    desc: 编译 macOS ARM64 (Apple Silicon) 版本
+    deps: [frontend:build]
+    cmds:
+      - |
+        mkdir -p {{.OUT_DIR}}
+        GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 \
+          go build -ldflags "{{.LD_FLAGS}}" \
+          -o {{.OUT_DIR}}/{{.BIN_NAME}}_{{.VERSION}}_darwin_arm64 \
+          ./backend/cmd/freebuff-proxy
+    generates:
+      - '{{.OUT_DIR}}/{{.BIN_NAME}}_{{.VERSION}}_darwin_arm64'
+
+  # ── 测试 ────────────────────────────────────────────────────
+
+  test:
+    desc: 运行 Go 测试套件（排除交互式凭证）
+    cmds:
+      - env -u AUTH_TOKENS -u ADMIN_TOKEN go test ./backend/...
+
+  test:race:
+    desc: 运行 Go 测试套件（含 race detector）
+    cmds:
+      - env -u AUTH_TOKENS -u ADMIN_TOKEN go test -race -timeout 10m ./backend/...
+
+  # ── 代码质量 ────────────────────────────────────────────────
+
+  lint:
+    desc: 静态分析（go vet + golangci-lint）
+    cmds:
+      - go vet ./backend/...
+      - golangci-lint run ./backend/...
+
+  format:
+    desc: 格式化 Go 和前端代码
+    cmds:
+      - go fmt ./backend/...
+      - npm --prefix frontend run format
+
+  # ── 验证门禁 ────────────────────────────────────────────────
+
+  verify:
+    desc: 快速门禁（格式检查 + 编译 + 测试 + 前端校验）
+    cmds:
+      - test -z "$(gofmt -l backend)"
+      - go vet ./backend/...
+      - go build ./backend/...
+      - env -u AUTH_TOKENS -u ADMIN_TOKEN go test ./backend/...
+      - npm --prefix frontend run check
+      - npm --prefix frontend run lint
+      - npm --prefix frontend run format:check
+
+  verify:full:
+    desc: 完整 CI 门禁（verify + race + e2e + dist 新鲜度）
+    cmds:
+      - task: verify
+      - task: test:race
+      - task: frontend:build
+      - task: frontend:test
+      - git diff --exit-code -- backend/internal/dashboard/dist
+
+  # ── 清理 ────────────────────────────────────────────────────
+
+  clean:
+    desc: 清理所有构建产物
+    cmds:
+      - rm -rf {{.OUT_DIR}}
+      - rm -rf frontend/node_modules
+      - rm -rf frontend/.svelte-kit
